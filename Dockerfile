@@ -1,0 +1,5 @@
+NODE_ENV=production
+PORT=3000
+DATA_DIR=./data
+BACKUP_DIR=./backups
+SESSION_DAYS=7

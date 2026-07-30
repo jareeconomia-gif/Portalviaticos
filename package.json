@@ -1,0 +1,14 @@
+{
+  "name": "portal-viaticos-durandco-productivo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Portal multiusuario de viáticos Durandco con Node.js y SQLite",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

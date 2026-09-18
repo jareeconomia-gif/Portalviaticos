@@ -532,17 +532,30 @@ function startRemotePolling(){
  },30000)
 }
 async function migrateLegacyData(){
- if(!currentUser||currentUser.role!=='master'||requests.length)return;
- let legacyRequests=[],legacyUsers=[],legacyConfig=null;
+ if(!currentUser||currentUser.role!=='master'||requests.length)return false;
+ let legacyRequests=[],legacyConfig=null;
  try{legacyRequests=JSON.parse(localStorage.getItem('durandco_v2_requests')||'[]')||[]}catch{}
- try{legacyUsers=JSON.parse(localStorage.getItem('durandco_v2_users')||'[]')||[]}catch{}
  try{legacyConfig=JSON.parse(localStorage.getItem('durandco_v2_config')||'null')}catch{}
- if(!legacyRequests.length)return;
- if(!confirm(`Se encontraron ${legacyRequests.length} solicitudes locales anteriores. ¿Deseas migrarlas junto con su configuración a la base compartida?`))return;
+ if(!legacyRequests.length)return false;
+ if(!confirm(`Se encontraron ${legacyRequests.length} solicitudes locales anteriores. ¿Deseas migrarlas junto con su configuración a la base compartida?`))return false;
  setSyncStatus('Migrando datos…','saving');
- await apiRequest('/migrate',{method:'POST',body:{requests:legacyRequests,users:legacyUsers,config:legacyConfig}});
- ['durandco_v2_requests','durandco_v2_users','durandco_v2_config','durandco_v2_session'].forEach(key=>localStorage.removeItem(key));
- await loadRemoteState();toast('Datos locales migrados a la base compartida')
+ try{
+  // Los usuarios se administran en la base compartida. No migramos el catálogo
+  // local de usuarios porque puede contener cuentas antiguas sin contraseña y
+  // no debe desactivar cuentas vigentes del portal.
+  await apiRequest('/migrate',{method:'POST',body:{requests:legacyRequests,config:legacyConfig}});
+  ['durandco_v2_requests','durandco_v2_users','durandco_v2_config','durandco_v2_session'].forEach(key=>localStorage.removeItem(key));
+  await loadRemoteState();
+  rerenderActiveView();
+  setSyncStatus('Conectado','ok');
+  toast('Datos locales migrados a la base compartida');
+  return true;
+ }catch(error){
+  console.error('No se pudieron migrar los datos locales',error);
+  setSyncStatus('Conectado · migración pendiente','error');
+  toast('No se pudieron migrar las solicitudes locales. Tu sesión sigue abierta.');
+  return false;
+ }
 }
 async function changeMyPassword(){
  const currentPassword=prompt('Escribe tu contraseña actual:');if(currentPassword===null)return;
@@ -815,8 +828,21 @@ $('loginForm').addEventListener('submit',async e=>{
 });
 async function startSession(u){
  currentUser={...u};
- try{await loadRemoteState();$('authScreen').style.display='none';$('appShell').style.display='grid';applyPermissions();await migrateLegacyData();startRemotePolling()}
- catch(error){currentUser=null;handleApiFailure(error);$('authScreen').style.display='grid';$('appShell').style.display='none'}
+ try{
+  await loadRemoteState();
+  $('authScreen').style.display='none';
+  $('appShell').style.display='grid';
+  applyPermissions();
+  startRemotePolling();
+ }catch(error){
+  currentUser=null;
+  handleApiFailure(error);
+  $('authScreen').style.display='grid';
+  $('appShell').style.display='none';
+  return;
+ }
+ // Una falla en la migración de datos antiguos nunca debe cerrar una sesión válida.
+ await migrateLegacyData();
 }
 async function logout(){
  try{await apiRequest('/logout',{method:'POST'})}catch{}

@@ -110,16 +110,16 @@ const DEFAULT_CONFIG = {
   flow:{jefeUserId:'JEFE',direccionUserId:'MASTER',requireComment:true},
   approverRoleProfiles:[
     {id:'AR_JEFE_DEFAULT',name:'Autorizador Jefe inmediato',type:'jefe',linkedUserId:'JEFE',description:'Perfil inicial de Jefe inmediato'},
-    {id:'AR_DIRECCION_DEFAULT',name:'Giovanni Gonzalez',type:'direccion',linkedUserId:'MASTER',description:'Aprobador final de recursos'}
+    {id:'AR_DIRECCION_DEFAULT',name:'Génesis León Sarabia',type:'direccion',linkedUserId:'MASTER',description:'Aprobador final de recursos'}
   ],
   approvalProfiles:[
-    {id:'PROFILE_GENERAL',name:'Flujo general',description:'Jefe inmediato firma → Giovanni aprueba',jefeRoleProfileId:'AR_JEFE_DEFAULT',direccionRoleProfileId:'AR_DIRECCION_DEFAULT',jefeUserId:'JEFE',direccionUserId:'MASTER',requireComment:true}
+    {id:'PROFILE_GENERAL',name:'Flujo general',description:'Jefe inmediato firma → Génesis aprueba',jefeRoleProfileId:'AR_JEFE_DEFAULT',direccionRoleProfileId:'AR_DIRECCION_DEFAULT',jefeUserId:'JEFE',direccionUserId:'MASTER',requireComment:true}
   ]
 };
 
 const DEFAULT_USERS = [
   {
-    id:'MASTER', email:'giovanni.gonzalez@empresa.com', password:'Giovanni2026!', name:'Giovanni Gonzalez', role:'master',
+    id:'MASTER', email:'gls@durandco.com', password:'Giovanni2026!', name:'Génesis León Sarabia', role:'master',
     company:'Grupo Industrial Durandco', position:'Director Corporativo', baseCity:'CDMX', canApproveJefe:true, canApproveDireccion:true,
     jefeApproverId:'', direccionApproverId:'MASTER'
   },
@@ -205,6 +205,47 @@ function seed() {
   if (!getSetting('config')) setSetting('config', DEFAULT_CONFIG, 'system');
 }
 seed();
+
+function updateMasterIdentity() {
+  const master = db.prepare('SELECT * FROM users WHERE id=?').get('MASTER');
+  if (!master) return;
+  const targetEmail = 'gls@durandco.com';
+  const duplicate = db.prepare('SELECT id FROM users WHERE lower(email)=? AND id<>?').get(targetEmail, 'MASTER');
+  if (duplicate) {
+    console.warn('No se actualizó el correo del usuario maestro porque ya existe otro usuario con gls@durandco.com.');
+    return;
+  }
+  const payload = sanitizeUserPayload(safeJsonParse(master.payload, {}), master);
+  payload.name = 'Génesis León Sarabia';
+  payload.email = targetEmail;
+  db.prepare('UPDATE users SET email=?,name=?,payload=?,updated_at=? WHERE id=?')
+    .run(targetEmail, payload.name, JSON.stringify(payload), nowIso(), 'MASTER');
+
+  const config = getSetting('config');
+  if (config && typeof config === 'object') {
+    let changed = false;
+    if (Array.isArray(config.approverRoleProfiles)) {
+      config.approverRoleProfiles = config.approverRoleProfiles.map(profile => {
+        if (profile?.linkedUserId === 'MASTER') {
+          changed = true;
+          return { ...profile, name: 'Génesis León Sarabia' };
+        }
+        return profile;
+      });
+    }
+    if (Array.isArray(config.approvalProfiles)) {
+      config.approvalProfiles = config.approvalProfiles.map(profile => {
+        if (typeof profile?.description === 'string' && profile.description.includes('Giovanni aprueba')) {
+          changed = true;
+          return { ...profile, description: profile.description.replace('Giovanni aprueba', 'Génesis aprueba') };
+        }
+        return profile;
+      });
+    }
+    if (changed) setSetting('config', config, 'system');
+  }
+}
+updateMasterIdentity();
 
 function parseCookies(req) {
   const result = {};

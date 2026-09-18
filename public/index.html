@@ -871,7 +871,7 @@ function roleLabel(r){return r==='master'?'Usuario maestro':'Usuario solicitante
 function approvalRuleThreshold(){return 0}
 function totalNeedsDirection(){return true}
 function requestNeedsDirection(){return true}
-function approvalRouteByAmount(total,jefeId){return approverName(jefeId)+' firma → Giovanni aprueba'}
+function approvalRouteByAmount(total,jefeId){return approverName(jefeId)+' firma → Revisión de Gastos de Viaje'}
 function approverName(id){const u=users.find(x=>x.id===id);return u?u.name:'Sin asignar'}
 function jefeApproverOptions(excludeId=''){return users.filter(u=>u.id!==excludeId&&(u.canApproveJefe||u.role==='master'))}
 function direccionApproverOptions(){return users.filter(u=>u.id==='MASTER')}
@@ -972,7 +972,7 @@ function defaults(){
  $('origin').value=$('baseCity').value;
  const requesterUser=users.find(u=>u.id===currentUser.id)||currentUser;
  const jefeAsignado=users.find(u=>u.id===requesterUser.jefeApproverId);
- if($('approvalProfileDisplay'))$('approvalProfileDisplay').value=jefeAsignado?jefeAsignado.name+' firma → Giovanni aprueba':'Pendiente de asignación del Jefe';
+ if($('approvalProfileDisplay'))$('approvalProfileDisplay').value=jefeAsignado?jefeAsignado.name+' firma → Revisión de Gastos de Viaje':'Pendiente de asignación del Jefe';
  const s=new Date();s.setDate(s.getDate()+3);const e=new Date(s);e.setDate(e.getDate()+2);$('startDate').value=s.toISOString().slice(0,10);$('endDate').value=e.toISOString().slice(0,10)
 }
 function tripDuration(){
@@ -1074,11 +1074,11 @@ function validateAll(){
  const assignedDireccion=users.find(u=>u.id==='MASTER');
  if(!assignedJefe||!(assignedJefe.canApproveJefe||assignedJefe.role==='master')){
   errors.push('Tu usuario no tiene un Jefe inmediato habilitado para firmar.');
-  rules.push({type:'error',text:'Giovanni debe asignarte un usuario habilitado para firmar como Jefe inmediato.'});
+  rules.push({type:'error',text:'El administrador debe asignarte un usuario habilitado para firmar como Jefe inmediato.'});
  }
  if(!assignedDireccion){
-  errors.push('No se encontró el usuario maestro Giovanni Gonzalez.');
-  rules.push({type:'error',text:'Giovanni es el aprobador final obligatorio.'});
+  errors.push('No se encontró al Jefe de Revisión de Gastos de Viaje.');
+  rules.push({type:'error',text:'El Jefe de Revisión de Gastos de Viaje es el aprobador final obligatorio.'});
  }
  EXPENSES.forEach(e=>{
   const enabled=$(e.id+'Enabled').checked,qty=Number($(e.id+'Qty').value)||0,unit=Number($(e.id+'Unit').value)||0,amount=enabled?qty*unit:0,daily=dailyCap(e.id,group),cap=daily==null?null:daily*qty;
@@ -1097,7 +1097,7 @@ function validateAll(){
  if($('budgeted') && $('budgeted').value==='No'){warnings.push('El viaje no tiene presupuesto confirmado.');rules.push({type:'warn',text:'Control Presupuestal deberá validar suficiencia.'})}
  if(exception>0&&!$('exceptionReason').value.trim()){errors.push('Captura la justificación del importe fuera de política.');$('exceptionReason').classList.add('input-error');$('exceptionReason').parentElement.querySelector('.field-error').classList.add('show')}else{$('exceptionReason').classList.remove('input-error');$('exceptionReason').parentElement.querySelector('.field-error').classList.remove('show')}
  if(exception>0)rules.push({type:'warn',text:`Importe fuera de política: ${MXN.format(exception)}.`});
- validation={errors,warnings,rules,total,exception,calendarDays,nights,route:(assignedJefe&&assignedDireccion)?assignedJefe.name+' firma → Giovanni aprueba':'Pendiente de asignación'};
+ validation={errors,warnings,rules,total,exception,calendarDays,nights,route:(assignedJefe&&assignedDireccion)?assignedJefe.name+' firma → Revisión de Gastos de Viaje':'Pendiente de asignación'};
  $('validationCount').textContent=`${errors.length} bloqueo(s) · ${warnings.length} aviso(s)`;
  $('validationRules').innerHTML=(rules.length?rules:[{type:'ok',text:'Sin observaciones adicionales.'}]).map(r=>`<div class="rule ${r.type}"><span class="mark">${r.type==='ok'?'✓':r.type==='warn'?'!':'×'}</span><div>${safe(r.text)}</div></div>`).join('');
  $('totalRequested').textContent=MXN.format(total);$('totalException').textContent=MXN.format(exception);$('totalMXN').textContent=MXN.format(total);
@@ -1146,7 +1146,7 @@ $('requestForm').addEventListener('submit',e=>{
  const giovanni=users.find(u=>u.id==='MASTER');
  if(!jefe||!(jefe.canApproveJefe||jefe.role==='master')){toast('El administrador debe asignarte un Jefe inmediato habilitado para firmar.');return}
  if(!giovanni){toast('No se encontró al Jefe de Revisión de Gastos de Viaje.');return}
- const r={id:nextFolio(),date:new Date().toISOString().slice(0,10),requester:currentUser.name,requesterEmail:currentUser.email,company:$('company').value,position:$('position').value,group:groupFor($('position').value),baseCity:$('baseCity').value,area:$('area').value,requestType:$('requestType').value,paymentMethod:$('paymentMethod').value,origin:$('baseCity').value,destination:finalDestination(),startDate:$('startDate').value,endDate:$('endDate').value,costProject:$('costProject').value,purpose:$('purpose').value,conditions:Object.fromEntries(QUESTIONS.map(q=>[q.id,$(q.id).value])),expenses:selectedExpenses(),total:validation.total,exception:validation.exception,exceptionReason:$('exceptionReason').value,status:'Pendiente Firma Jefe',jefeApproverId:jefe.id,direccionApproverId:'MASTER',requiresDirection:true,requireComment:true,jefeComment:'',direccionComment:'',jefeSignedAt:'',jefeSignedBy:'',resourceReadyAt:'',history:[{stage:'Enviada para firma del Jefe inmediato',by:currentUser.name,date:new Date().toISOString(),route:jefe.name+' firma → Giovanni aprueba'}]};
+ const r={id:nextFolio(),date:new Date().toISOString().slice(0,10),requester:currentUser.name,requesterEmail:currentUser.email,company:$('company').value,position:$('position').value,group:groupFor($('position').value),baseCity:$('baseCity').value,area:$('area').value,requestType:$('requestType').value,paymentMethod:$('paymentMethod').value,origin:$('baseCity').value,destination:finalDestination(),startDate:$('startDate').value,endDate:$('endDate').value,costProject:$('costProject').value,purpose:$('purpose').value,conditions:Object.fromEntries(QUESTIONS.map(q=>[q.id,$(q.id).value])),expenses:selectedExpenses(),total:validation.total,exception:validation.exception,exceptionReason:$('exceptionReason').value,status:'Pendiente Firma Jefe',jefeApproverId:jefe.id,direccionApproverId:'MASTER',requiresDirection:true,requireComment:true,jefeComment:'',direccionComment:'',jefeSignedAt:'',jefeSignedBy:'',resourceReadyAt:'',history:[{stage:'Enviada para firma del Jefe inmediato',by:currentUser.name,date:new Date().toISOString(),route:jefe.name+' firma → Revisión de Gastos de Viaje'}]};
  requests.unshift(r);persist();localStorage.removeItem(draftKey());toast('Solicitud enviada para firma del Jefe inmediato');step=1;defaults();showView('my')
 });
 
@@ -1719,7 +1719,7 @@ function openDetail(id,approval=false){
   const commentLabel=isJefeStage?'Comentario de la firma':'Comentario de aprobación y entrega del recurso';
   actions=`<div class="field" style="margin-top:14px"><label>${commentLabel}</label><textarea id="approvalComment" placeholder="Escribe un comentario para el solicitante."></textarea></div><div style="display:flex;justify-content:flex-end;gap:9px;margin-top:14px"><button class="btn btn-danger" onclick="decide('${safe(r.id)}','reject')">${negativeLabel}</button><button class="btn btn-orange" onclick="decide('${safe(r.id)}','approve')">${positiveLabel}</button></div>`
  }
- $('modalContent').innerHTML=`<div class="detail-grid"><div class="detail"><small>Folio</small><strong>${safe(r.id)}</strong></div><div class="detail"><small>Estatus</small><span class="status ${statusClass(r.status)}">${safe(r.status)}</span></div><div class="detail"><small>Total</small><strong>${MXN.format(r.total)}</strong></div><div class="detail"><small>Solicitante</small><strong>${safe(r.requester)}</strong></div><div class="detail"><small>Empresa</small><strong>${safe(r.company)}</strong></div><div class="detail"><small>Grupo</small><strong>Grupo ${safe(r.group)}</strong></div><div class="detail"><small>Origen</small><strong>${safe(r.origin)}</strong></div><div class="detail"><small>Destino</small><strong>${safe(r.destination)}</strong></div><div class="detail"><small>CECO / Proyecto</small><strong>${safe(r.costProject)}</strong></div><div class="detail"><small>Jefe que firma</small><strong>${safe(approverName(r.jefeApproverId))}</strong></div><div class="detail"><small>Aprobador final</small><strong>Giovanni Gonzalez</strong></div><div class="detail"><small>Resultado final</small><strong>${r.status==='Aprobada · Recurso listo'||r.status==='Aprobada'?'Recurso listo':'Pendiente'}</strong></div><div class="detail full"><small>Motivo</small><strong>${safe(r.purpose)}</strong></div>${comments}</div>${policyHtml}${expenseHtml}${actions}`;
+ $('modalContent').innerHTML=`<div class="detail-grid"><div class="detail"><small>Folio</small><strong>${safe(r.id)}</strong></div><div class="detail"><small>Estatus</small><span class="status ${statusClass(r.status)}">${safe(r.status)}</span></div><div class="detail"><small>Total</small><strong>${MXN.format(r.total)}</strong></div><div class="detail"><small>Solicitante</small><strong>${safe(r.requester)}</strong></div><div class="detail"><small>Empresa</small><strong>${safe(r.company)}</strong></div><div class="detail"><small>Grupo</small><strong>Grupo ${safe(r.group)}</strong></div><div class="detail"><small>Origen</small><strong>${safe(r.origin)}</strong></div><div class="detail"><small>Destino</small><strong>${safe(r.destination)}</strong></div><div class="detail"><small>CECO / Proyecto</small><strong>${safe(r.costProject)}</strong></div><div class="detail"><small>Jefe que firma</small><strong>${safe(approverName(r.jefeApproverId))}</strong></div><div class="detail"><small>Aprobador final</small><strong>${safe(FINAL_APPROVER_LABEL)}</strong></div><div class="detail"><small>Resultado final</small><strong>${r.status==='Aprobada · Recurso listo'||r.status==='Aprobada'?'Recurso listo':'Pendiente'}</strong></div><div class="detail full"><small>Motivo</small><strong>${safe(r.purpose)}</strong></div>${comments}</div>${policyHtml}${expenseHtml}${actions}`;
  $('modal').classList.add('open')
 }
 function closeModal(){$('modal').classList.remove('open')}

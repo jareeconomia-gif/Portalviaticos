@@ -377,6 +377,31 @@ function mergeApproverUpdate(oldRequest, incoming, user) {
   if (!Array.isArray(next.history)) next.history = [];
   return normalizeRequest(next);
 }
+function mergeOwnerComprobacion(oldRequest, incoming, user) {
+  const next = clone(oldRequest);
+  next.comprobacion = clone(cleanObject(incoming.comprobacion));
+  const requestedStatus = String(incoming.status || oldRequest.status || '');
+  const canSubmit = ['Aprobada · Recurso listo','Aprobada'].includes(String(oldRequest.status || ''))
+    && requestedStatus === 'Comprobación enviada'
+    && Boolean(next.comprobacion?.submittedAt);
+  if (canSubmit) {
+    next.status = 'Comprobación enviada';
+    if (!Array.isArray(next.history)) next.history = [];
+    const alreadyLogged = next.history.some(item => item?.stage === 'Comprobación enviada · Layout SAP generado' && item?.date === next.comprobacion.submittedAt);
+    if (!alreadyLogged) {
+      next.history.push({
+        stage: 'Comprobación enviada · Layout SAP generado',
+        by: user.name,
+        date: next.comprobacion.submittedAt,
+        comment: 'Comprobación capturada dentro del Portal de Viáticos.'
+      });
+    }
+  } else {
+    next.status = oldRequest.status;
+  }
+  return normalizeRequest(next);
+}
+
 function canUpdateRequest(user, oldRequest, incoming) {
   if (user.role === 'master') return { allowed: true, mode: 'master' };
   if (!oldRequest) return normalize(incoming.requesterEmail) === normalize(user.email)
@@ -384,7 +409,11 @@ function canUpdateRequest(user, oldRequest, incoming) {
     : { allowed: false };
   if (normalize(oldRequest.requesterEmail) === normalize(user.email)) {
     const editable = ['Borrador','Rechazada'].includes(String(oldRequest.status || ''));
-    return editable ? { allowed: true, mode: 'owner' } : { allowed: true, mode: 'owner-noop' };
+    if (editable) return { allowed: true, mode: 'owner' };
+    if (['Aprobada · Recurso listo','Aprobada'].includes(String(oldRequest.status || '')) && Object.hasOwn(incoming, 'comprobacion')) {
+      return { allowed: true, mode: 'owner-comprobacion' };
+    }
+    return { allowed: true, mode: 'owner-noop' };
   }
   if (oldRequest.jefeApproverId === user.id && oldRequest.status === 'Pendiente Firma Jefe' && user.canApproveJefe) {
     return { allowed: true, mode: 'approver' };
@@ -451,6 +480,7 @@ async function syncRequests(user, incomingRequests) {
       if (!permission.allowed) continue;
       let next = incoming;
       if (permission.mode === 'approver') next = mergeApproverUpdate(oldRequest, incoming, user);
+      if (permission.mode === 'owner-comprobacion') next = mergeOwnerComprobacion(oldRequest, incoming, user);
       if (permission.mode === 'owner-noop') next = oldRequest;
       if (permission.mode === 'new-owner') {
         const userRow = db.prepare('SELECT * FROM users WHERE id=? AND active=1').get(user.id);

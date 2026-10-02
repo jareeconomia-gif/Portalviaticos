@@ -1270,6 +1270,217 @@ function renderAll(){
  $('allTable').innerHTML=table(filteredAllRequests(),true,true)
 }
 
+
+let comprobacionRequestId='';
+let comprobacionDraft=null;
+const SAP_TRAVEL_ACCOUNTS={
+ 'Alimentos':'621008002',
+ 'Hospedaje':'601008002',
+ 'Transporte terrestre':'601008006',
+ 'Taxis y pasajes':'601008006',
+ 'Estacionamiento':'601008007',
+ 'Gasolina':'601008005',
+ 'Casetas y peajes':'601008004',
+ 'Arrendamiento de vehículos':'601008011',
+ 'Otros gastos de viaje':'601008009'
+};
+const COMPROBACION_CONCEPTS=Object.keys(SAP_TRAVEL_ACCOUNTS);
+
+function comprobacionOwner(r){return norm(r?.requesterEmail)===norm(currentUser?.email)}
+function comprobacionAllowed(r){return comprobacionOwner(r)&&['Aprobada · Recurso listo','Aprobada','Comprobación enviada','Procesado SAP'].includes(String(r.status||''))}
+function blankComprobacionExpense(){
+ return {id:'G'+Date.now()+Math.random().toString(36).slice(2,6),invoiceDate:'',issuer:'',reference:'',concept:'Alimentos',gross:0,vat:0,note:''}
+}
+function comprobacionTemplate(r){
+ return {
+  society:'1020',
+  transaction:'Factura',
+  postingDate:new Date().toISOString().slice(0,10),
+  currency:'MXN',
+  reference:'VIAT-'+r.id,
+  expenses:[blankComprobacionExpense()],
+  createdAt:new Date().toISOString()
+ }
+}
+function comprobacionTotals(draft=comprobacionDraft){
+ const total=(draft?.expenses||[]).reduce((sum,e)=>sum+Number(e.gross||0),0);
+ const iva=(draft?.expenses||[]).reduce((sum,e)=>sum+Number(e.vat||0),0);
+ return {total,iva}
+}
+function comprobacionDifference(r,draft=comprobacionDraft){
+ return comprobacionTotals(draft).total-Number(r?.total||0)
+}
+function renderComprobaciones(){
+ const rows=requests.filter(r=>comprobacionOwner(r)&&['Aprobada · Recurso listo','Aprobada','Comprobación enviada','Procesado SAP'].includes(String(r.status||'')));
+ $('comprobacionList').innerHTML=rows.length?`<div class="table-wrap"><table class="data"><thead><tr><th>Folio</th><th>Destino</th><th>Recurso autorizado</th><th>Comprobado</th><th>Estatus</th><th>Acción</th></tr></thead><tbody>${rows.map(r=>{
+  const total=Number(r.comprobacion?.totalComprobado||0);
+  const label=r.status==='Aprobada'?'Aprobada · Recurso listo':r.status;
+  return `<tr><td><strong>${safe(r.id)}</strong></td><td>${safe(r.destination)}</td><td>${MXN.format(r.total||0)}</td><td>${MXN.format(total)}</td><td><span class="status ${statusClass(r.status)}">${safe(label)}</span></td><td><button class="btn ${r.status==='Aprobada · Recurso listo'||r.status==='Aprobada'?'btn-orange':'btn-light'}" onclick="openComprobacion('${safe(r.id)}')">${r.status==='Aprobada · Recurso listo'||r.status==='Aprobada'?'Capturar gastos':'Ver comprobación'}</button></td></tr>`
+ }).join('')}</tbody></table></div>`:'<div class="empty">Todavía no tienes solicitudes con recurso aprobado para comprobar.</div>';
+ if(comprobacionRequestId){
+  const selected=rows.find(r=>r.id===comprobacionRequestId);
+  if(selected)renderComprobacionEditor(selected);else{$('comprobacionEditor').innerHTML='';comprobacionRequestId='';comprobacionDraft=null}
+ }else $('comprobacionEditor').innerHTML=''
+}
+function openComprobacion(id){
+ const r=requests.find(x=>x.id===id);
+ if(!r||!comprobacionAllowed(r)){toast('Esta solicitud todavía no está disponible para comprobación');return}
+ comprobacionRequestId=id;
+ comprobacionDraft=JSON.parse(JSON.stringify(r.comprobacion||comprobacionTemplate(r)));
+ showView('comprobacion');
+ renderComprobacionEditor(r)
+}
+function renderComprobacionEditor(r){
+ if(!comprobacionDraft)comprobacionDraft=JSON.parse(JSON.stringify(r.comprobacion||comprobacionTemplate(r)));
+ const locked=['Comprobación enviada','Procesado SAP'].includes(r.status);
+ const totals=comprobacionTotals();
+ const diff=totals.total-Number(r.total||0);
+ $('comprobacionEditor').innerHTML=`<div class="sap-shell">
+  <div class="sap-head">
+   <h3>Comprobación de gastos · ${safe(r.id)}</h3>
+   <p>Captura los comprobantes del viaje. No necesitas entrar a SAP ni conocer las cuentas contables.</p>
+   <div class="sap-kpis">
+    <div class="sap-kpi"><small>Recurso autorizado</small><strong>${MXN.format(r.total||0)}</strong></div>
+    <div class="sap-kpi"><small>Total comprobado</small><strong id="compTotalHead">${MXN.format(totals.total)}</strong></div>
+    <div class="sap-kpi"><small>Diferencia</small><strong id="compDiffHead">${MXN.format(diff)}</strong></div>
+    <div class="sap-kpi"><small>Estatus</small><strong>${safe(statusLabel(r.status))}</strong></div>
+   </div>
+  </div>
+  <div class="sap-tabs">
+   <button class="sap-tab active" type="button">Información general</button>
+   <button class="sap-tab" type="button">Gastos comprobados</button>
+   <button class="sap-tab" type="button">Impuesto</button>
+   <button class="sap-tab" type="button">Pago</button>
+   <button class="sap-tab" type="button">Nota</button>
+  </div>
+  <div class="sap-section">
+   <div class="sap-card">
+    <h4>Datos básicos</h4>
+    <div class="sap-form">
+     <div class="field"><label>Transacción</label><input class="sap-readonly" value="Factura" readonly></div>
+     <div class="field"><label>Sociedad</label><input class="sap-readonly" value="${safe(comprobacionDraft.society||'1020')} (DURANDCO BUSINESS SUPPORT)" readonly></div>
+     <div class="field"><label>Moneda</label><input class="sap-readonly" value="${safe(comprobacionDraft.currency||'MXN')}" readonly></div>
+     <div class="field"><label>Fecha contabilización</label><input type="date" value="${safe(comprobacionDraft.postingDate||'')}" ${locked?'disabled':''} onchange="setComprobacionHeader('postingDate',this.value)"></div>
+     <div class="field"><label>Referencia</label><input value="${safe(comprobacionDraft.reference||'')}" ${locked?'disabled':''} oninput="setComprobacionHeader('reference',this.value)"></div>
+     <div class="field"><label>CECO / Proyecto</label><input class="sap-readonly" value="${safe(r.costProject||'')}" readonly></div>
+     <div class="field"><label>Solicitante</label><input class="sap-readonly" value="${safe(r.requester||'')}" readonly></div>
+     <div class="field"><label>Destino</label><input class="sap-readonly" value="${safe(r.destination||'')}" readonly></div>
+     <div class="field"><label>Periodo</label><input class="sap-readonly" value="${safe(r.startDate||'')} al ${safe(r.endDate||'')}" readonly></div>
+    </div>
+   </div>
+   <div class="sap-card">
+    <div class="sap-toolbar"><div><h4 style="margin:0">Gastos / facturas</h4><small style="color:var(--muted)">Agrega una línea por comprobante. La cuenta SAP se asigna automáticamente según el tipo de gasto.</small></div>${locked?'':`<button class="btn btn-light" type="button" onclick="addComprobacionExpense()">＋ Agregar gasto</button>`}</div>
+    <div class="table-wrap"><table class="sap-expenses"><thead><tr><th>Fecha factura</th><th>Emisor de factura</th><th>Referencia / folio</th><th>Tipo de gasto</th><th>Importe bruto</th><th>IVA</th><th>Nota</th>${locked?'':'<th></th>'}</tr></thead><tbody id="compExpenseRows"></tbody></table></div>
+    <div class="sap-balance">
+     <div><small>Recurso autorizado</small><strong>${MXN.format(r.total||0)}</strong></div>
+     <div><small>Total comprobado</small><strong id="compTotalBottom">${MXN.format(totals.total)}</strong></div>
+     <div><small>Saldo / diferencia</small><strong id="compDiffBottom">${MXN.format(diff)}</strong></div>
+    </div>
+   </div>
+   <div class="notice ${locked?'':'orange'}"><strong>${locked?'Comprobación enviada.':'Importante:'}</strong> ${locked?'El layout SAP ya está disponible únicamente para Génesis.':'Al enviar, el sistema genera el layout SAP en segundo plano. El usuario solicitante no tendrá acceso a ese archivo.'}</div>
+   <div class="actions">${locked?`<button class="btn btn-outline" onclick="comprobacionRequestId='';comprobacionDraft=null;renderComprobaciones()">Cerrar</button>`:`<button class="btn btn-outline" onclick="saveComprobacion(false)">Guardar borrador</button><button class="btn btn-orange" onclick="saveComprobacion(true)">Enviar comprobación</button>`}</div>
+  </div>
+ </div>`;
+ renderComprobacionExpenseRows(locked)
+}
+function renderComprobacionExpenseRows(locked=false){
+ const body=$('compExpenseRows');if(!body)return;
+ body.innerHTML=(comprobacionDraft?.expenses||[]).map((e,index)=>`<tr>
+  <td><input type="date" value="${safe(e.invoiceDate||'')}" ${locked?'disabled':''} onchange="updateComprobacionExpense(${index},'invoiceDate',this.value)"></td>
+  <td><input value="${safe(e.issuer||'')}" placeholder="Proveedor / establecimiento" ${locked?'disabled':''} oninput="updateComprobacionExpense(${index},'issuer',this.value)"></td>
+  <td><input value="${safe(e.reference||'')}" placeholder="Folio o UUID" ${locked?'disabled':''} oninput="updateComprobacionExpense(${index},'reference',this.value)"></td>
+  <td><select ${locked?'disabled':''} onchange="updateComprobacionExpense(${index},'concept',this.value)">${COMPROBACION_CONCEPTS.map(x=>`<option ${x===e.concept?'selected':''}>${safe(x)}</option>`).join('')}</select></td>
+  <td><input class="money" type="number" min="0" step=".01" value="${Number(e.gross||0)}" ${locked?'disabled':''} oninput="updateComprobacionExpense(${index},'gross',this.value)"></td>
+  <td><input class="money" type="number" min="0" step=".01" value="${Number(e.vat||0)}" ${locked?'disabled':''} oninput="updateComprobacionExpense(${index},'vat',this.value)"></td>
+  <td><input value="${safe(e.note||'')}" placeholder="Descripción breve" ${locked?'disabled':''} oninput="updateComprobacionExpense(${index},'note',this.value)"></td>
+  ${locked?'':`<td><button class="icon-btn danger" type="button" title="Eliminar" onclick="removeComprobacionExpense(${index})">×</button></td>`}
+ </tr>`).join('')
+}
+function setComprobacionHeader(field,value){if(comprobacionDraft)comprobacionDraft[field]=value}
+function updateComprobacionExpense(index,field,value){
+ const e=comprobacionDraft?.expenses?.[index];if(!e)return;
+ e[field]=['gross','vat'].includes(field)?Number(value||0):value;
+ refreshComprobacionTotals()
+}
+function refreshComprobacionTotals(){
+ const r=requests.find(x=>x.id===comprobacionRequestId);if(!r)return;
+ const total=comprobacionTotals().total,diff=total-Number(r.total||0);
+ ['compTotalHead','compTotalBottom'].forEach(id=>{if($(id))$(id).textContent=MXN.format(total)});
+ ['compDiffHead','compDiffBottom'].forEach(id=>{if($(id))$(id).textContent=MXN.format(diff)})
+}
+function addComprobacionExpense(){if(!comprobacionDraft)return;comprobacionDraft.expenses.push(blankComprobacionExpense());renderComprobacionExpenseRows(false);refreshComprobacionTotals()}
+function removeComprobacionExpense(index){if(!comprobacionDraft)return;comprobacionDraft.expenses.splice(index,1);if(!comprobacionDraft.expenses.length)comprobacionDraft.expenses.push(blankComprobacionExpense());renderComprobacionExpenseRows(false);refreshComprobacionTotals()}
+function validateComprobacion(){
+ const rows=comprobacionDraft?.expenses||[];
+ if(!rows.length)return 'Agrega al menos un gasto.';
+ for(let i=0;i<rows.length;i++){
+  const e=rows[i];
+  if(!e.invoiceDate||!String(e.issuer||'').trim()||!String(e.reference||'').trim()||!e.concept||Number(e.gross||0)<=0)return `Completa fecha, emisor, referencia, tipo e importe del gasto ${i+1}.`
+ }
+ return ''
+}
+function saveComprobacion(submit=false){
+ const r=requests.find(x=>x.id===comprobacionRequestId);if(!r||!comprobacionOwner(r))return;
+ if(submit){
+  const error=validateComprobacion();if(error){toast(error);return}
+  if(!confirm('¿Enviar la comprobación? Después de enviarla el layout quedará disponible para Génesis.'))return
+ }
+ const totals=comprobacionTotals();
+ r.comprobacion={...JSON.parse(JSON.stringify(comprobacionDraft)),totalComprobado:totals.total,totalIva:totals.iva,difference:totals.total-Number(r.total||0),updatedAt:new Date().toISOString()};
+ if(submit){
+  r.comprobacion.submittedAt=new Date().toISOString();
+  r.comprobacion.submittedBy=currentUser.name;
+  r.status='Comprobación enviada';
+  if(!Array.isArray(r.history))r.history=[];
+  r.history.push({stage:'Comprobación enviada · Layout SAP generado',by:currentUser.name,date:r.comprobacion.submittedAt,comment:`Total comprobado: ${MXN.format(totals.total)}`});
+ }
+ persist();
+ toast(submit?'Comprobación enviada. Génesis ya puede descargar el layout SAP.':'Borrador de comprobación guardado');
+ renderComprobaciones();
+ if(submit){comprobacionRequestId=r.id;comprobacionDraft=JSON.parse(JSON.stringify(r.comprobacion));renderComprobacionEditor(r)}
+}
+function renderSapLayouts(){
+ if(currentUser?.id!=='MASTER')return;
+ const rows=requests.filter(r=>r.comprobacion?.submittedAt);
+ $('sapLayoutsTable').innerHTML=rows.length?`<div class="table-wrap"><table class="data"><thead><tr><th>Folio</th><th>Solicitante</th><th>Enviada</th><th>Recurso</th><th>Comprobado</th><th>Diferencia</th><th>Estatus</th><th>Acción</th></tr></thead><tbody>${rows.map(r=>`<tr>
+  <td><strong>${safe(r.id)}</strong></td><td>${safe(r.requester)}</td><td>${new Date(r.comprobacion.submittedAt).toLocaleString('es-MX')}</td>
+  <td>${MXN.format(r.total||0)}</td><td>${MXN.format(r.comprobacion.totalComprobado||0)}</td><td>${MXN.format(r.comprobacion.difference||0)}</td>
+  <td><span class="status ${statusClass(r.status)}">${safe(statusLabel(r.status))}</span></td>
+  <td><div style="display:flex;gap:7px;flex-wrap:wrap"><button class="btn btn-orange" onclick="downloadComprobacionSapLayout('${safe(r.id)}')">⇩ Descargar layout SAP</button>${r.status!=='Procesado SAP'?`<button class="btn btn-light" onclick="markSapProcessed('${safe(r.id)}')">Marcar procesado</button>`:''}</div></td>
+ </tr>`).join('')}</tbody></table></div>`:'<div class="empty">Aún no hay comprobaciones enviadas con layout SAP disponible.</div>'
+}
+function downloadComprobacionSapLayout(id){
+ if(currentUser?.id!=='MASTER'){toast('Sólo Génesis puede descargar layouts SAP');return}
+ const r=requests.find(x=>x.id===id),comp=r?.comprobacion;if(!r||!comp?.submittedAt)return;
+ const headers=['Sociedad SAP','Transacción','Fecha factura','Fecha contabilización','Referencia','Emisor de factura','Folio viático','Solicitante','Empresa','Moneda','Importe bruto','IVA','Cuenta mayor SAP','Centro de costo SAP','Elemento PEP SAP','Concepto','Texto para SAP'];
+ const rows=(comp.expenses||[]).map(e=>[
+  {value:comp.society||'1020'},{value:comp.transaction||'Factura'},{value:e.invoiceDate,type:'DateTime',style:'Date'},{value:comp.postingDate,type:'DateTime',style:'Date'},
+  {value:e.reference||comp.reference},{value:e.issuer},{value:r.id},{value:r.requester},{value:r.company},{value:comp.currency||'MXN'},
+  {value:e.gross,type:'Number',style:'Money'},{value:e.vat,type:'Number',style:'Money'},{value:SAP_TRAVEL_ACCOUNTS[e.concept]||''},{value:r.costProject||''},{value:''},{value:e.concept},
+  {value:`${r.id} · ${e.concept} · ${r.requester}`}
+ ]);
+ const styles=`<Styles>
+  <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Bottom"/><Borders/><Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11"/><Interior/><NumberFormat/><Protection/></Style>
+  <Style ss:ID="Header"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#17175F" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Text"><Alignment ss:Vertical="Center"/><NumberFormat ss:Format="@"/></Style>
+  <Style ss:ID="Money"><Alignment ss:Horizontal="Right"/><NumberFormat ss:Format="#,##0.00"/></Style>
+  <Style ss:ID="Date"><Alignment ss:Horizontal="Center"/><NumberFormat ss:Format="yyyy-mm-dd"/></Style>
+ </Styles>`;
+ const workbook=`<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">${styles}${excelWorksheet('Layout SAP',headers,rows,[90,85,90,100,130,180,100,170,150,70,100,85,115,125,120,150,250])}</Workbook>`;
+ const blob=new Blob(['\ufeff',workbook],{type:'application/vnd.ms-excel;charset=utf-8'}),a=document.createElement('a');
+ a.href=URL.createObjectURL(blob);a.download=`Layout_SAP_Comprobacion_${r.id}.xls`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+ toast('Layout SAP descargado')
+}
+function markSapProcessed(id){
+ if(currentUser?.id!=='MASTER')return;
+ const r=requests.find(x=>x.id===id);if(!r?.comprobacion?.submittedAt)return;
+ if(!confirm(`¿Marcar la comprobación ${r.id} como procesada en SAP?`))return;
+ r.status='Procesado SAP';r.comprobacion.sapProcessedAt=new Date().toISOString();r.comprobacion.sapProcessedBy=currentUser.name;
+ if(!Array.isArray(r.history))r.history=[];
+ r.history.push({stage:'Comprobación procesada en SAP',by:currentUser.name,date:r.comprobacion.sapProcessedAt,comment:'Layout procesado por usuario maestro'});
+ persist();renderSapLayouts();renderDashboard();renderAll();toast('Comprobación marcada como procesada en SAP')
+}
+
 function excelXmlEscape(value){
  return String(value??'')
   .replace(/&/g,'&amp;')
